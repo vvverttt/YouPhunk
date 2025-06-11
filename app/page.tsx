@@ -139,12 +139,51 @@ function Gate() {
   const [rawEthscriptionsApi, setRawEthscriptionsApi] = useState<any[]>([]);
   const [showDebug, setShowDebug] = useState(false);
 
-  // Terminal animation state
+  // Temporary concise debug output for wallet and SHA matching
+  const [showTempDebug, setShowTempDebug] = useState(true);
+  useEffect(() => {
+    setShowTempDebug(true);
+    const t = setTimeout(() => setShowTempDebug(false), 15000);
+    return () => clearTimeout(t);
+  }, [address]);
+
+  // Find owned EtherPhunks (must match sha and current_owner)
+  const ownedEtherPhunks = Array.isArray((etherPhunks as any)?.collection_items)
+    ? (etherPhunks as any).collection_items.filter((item: any) =>
+        rawEthscriptionsApi.some(e =>
+          e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
+          e.current_owner?.toLowerCase() === address?.toLowerCase()
+        )
+      )
+    : [];
+  // Find owned Missing Phunks (must match sha and current_owner)
+  const ownedMissingPhunks = Array.isArray((missingPhunks as any)?.collection_items)
+    ? (missingPhunks as any).collection_items.filter((item: any) =>
+        rawEthscriptionsApi.some(e =>
+          e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
+          e.current_owner?.toLowerCase() === address?.toLowerCase()
+        )
+      )
+    : [];
+  // Find owned DystoPhunks (must match sha and current_owner)
+  const ownedDystoPhunks = Array.isArray((dystoPhunks as any)?.collection_items)
+    ? (dystoPhunks as any).collection_items.filter((item: any) =>
+        rawEthscriptionsApi.some(e =>
+          e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
+          e.current_owner?.toLowerCase() === address?.toLowerCase()
+        )
+      )
+    : [];
+
+  // Animation state for highlighting
+  const [highlightedSection, setHighlightedSection] = useState<number | null>(null);
+
+  // Update checks array to only show label (no count)
   const checks = [
     { label: 'V2 Phunk', met: ownsV2 },
-    { label: 'EtherPhunk', met: ownsEther },
-    { label: 'Missing Phunk', met: ownsMissing },
-    { label: 'DystoPhunk', met: ownsDysto },
+    { label: 'EtherPhunk', met: ownedEtherPhunks.length > 0 },
+    { label: 'Missing Phunk', met: ownedMissingPhunks.length > 0 },
+    { label: 'DystoPhunk', met: ownedDystoPhunks.length > 0 },
   ];
   const [showResults, setShowResults] = useState(false);
   const [checkingIndex, setCheckingIndex] = useState(0);
@@ -156,6 +195,11 @@ function Gate() {
   const [phase, setPhase] = useState<'pre-blink' | 'typing' | 'post-blink'>('pre-blink');
   const splashMessage = 'You Need A Phunk';
 
+  // Track if all requirements are met
+  const allChecksMet = checks.every(c => c.met);
+  // Track if check animation is finished
+  const [checksComplete, setChecksComplete] = useState(false);
+
   useEffect(() => {
     if (isConnected) {
       setTimeout(() => setMatrixFade(true), 400); // fade Matrix after connect
@@ -164,9 +208,19 @@ function Gate() {
     }
   }, [isConnected]);
 
+  // Only start check animation after data is loaded and validated
+  const dataReady = typeof ownsV2 === 'boolean' && Array.isArray(ownedEtherPhunks) && Array.isArray(ownedMissingPhunks) && Array.isArray(ownedDystoPhunks);
   useEffect(() => {
-    if (!isConnected) return;
+    if (!dataReady) return;
+    setChecksComplete(false);
+    setCheckingIndex(0);
+    setShowCheckResult(false);
+  }, [isConnected, address, dataReady]);
 
+  // Fix: Ensure last checkmark stays visible after animation completes
+  useEffect(() => {
+    if (!dataReady) return;
+    if (!checksComplete) {
     if (checkingIndex < checks.length - 1) {
       setShowCheckResult(false);
       const checkTimer = setTimeout(() => setShowCheckResult(true), 900);
@@ -179,115 +233,129 @@ function Gate() {
         clearTimeout(nextTimer);
       };
     } else if (checkingIndex === checks.length - 1) {
-      setShowCheckResult(false);
-      const checkTimer = setTimeout(() => setShowCheckResult(true), 900);
+        setShowCheckResult(true); // Keep last check visible
       const nextTimer = setTimeout(() => {
-        setShowCheckResult(false);
-        setShowResults(true);
+          setChecksComplete(true);
       }, 1800);
       return () => {
-        clearTimeout(checkTimer);
         clearTimeout(nextTimer);
       };
     }
-  }, [checkingIndex, isConnected]);
+    }
+  }, [checkingIndex, checksComplete, checks.length, dataReady]);
 
+  // Reset animation on reload/connect
   useEffect(() => {
-    setShowResults(false);
+    setChecksComplete(false);
     setCheckingIndex(0);
     setShowCheckResult(false);
   }, [isConnected, address]);
 
-  useEffect(() => {
-    if (!hasMounted || !isConnected || !address) return;
+  // Enter button state
+  const [showGif, setShowGif] = useState(false);
 
-    // ERC-721 checks (separate try/catch)
+  useEffect(() => {
+    if (!hasMounted || !isConnected || !address) {
+      setOwnsV2(false);
+      return;
+    }
     (async () => {
+      const V2_PHUNKS_CONTRACT = '0xf07468eAd8cf26c752C676E43C814FEe9c8CF402';
+      const ERC721_ABI = [
+        'function balanceOf(address owner) view returns (uint256)'
+      ];
+      if (!window.ethereum) {
+        console.error('No injected Ethereum provider found (is MetaMask installed?)');
+        return;
+      }
       try {
-        const ethProvider = new ethers.providers.Web3Provider(window.ethereum);
-        const v2 = new ethers.Contract(V2_PHUNKS_CONTRACT, ERC721_ABI, ethProvider);
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const v2 = new ethers.Contract(V2_PHUNKS_CONTRACT, ERC721_ABI, provider);
         const v2Bal = await v2.balanceOf(address);
+        console.log('[V2 CHECK] V2 Phunk balance:', v2Bal.toString(), 'for address:', address);
         setOwnsV2(v2Bal.gte(1));
-        // ...other ERC-721 checks if needed...
       } catch (err) {
+        console.error('[V2 CHECK] Error:', err);
         setOwnsV2(false);
-        // ...set other ERC-721 states to false if needed...
       }
     })();
+  }, [hasMounted, isConnected, address]);
 
-    // Use the connected address if available, otherwise use a test address for debugging
-    const fetchAddress = address ? address.toLowerCase() : '0x78d3aaf8e3cd4b350635c79b7021bd76144c582c';
+  useEffect(() => {
+    if (!hasMounted || !isConnected || !address) {
+      setRawEthscriptionsApi([]);
+      setUserEthscriptionContentShas([]);
+      setOwnsDysto(false);
+      setOwnsEther(false);
+      setOwnsMissing(false);
+      return;
+    }
+
+    // Only fetch for the connected address
+    const fetchAddress = address.toLowerCase();
     let cancelled = false;
     (async () => {
       let allResults = [];
       let pageKey = undefined;
       let hasMore = true;
       while (hasMore) {
-        const url = `/api/ethscriptions?owner=${fetchAddress}` + (pageKey ? `&page_key=${pageKey}` : '');
+        const url = `https://api.ethscriptions.com/v2/ethscriptions?current_owner=${fetchAddress}` + (pageKey ? `&page_key=${pageKey}` : '');
         console.log('Fetching URL:', url);
         const response = await fetch(url);
         const data = await response.json();
-        console.log('API response', data);
-        allResults = allResults.concat(data.result || []);
+        
+        // Handle both array and paginated response formats
+        const results = Array.isArray(data) ? data : (data.result || []);
+        allResults = allResults.concat(results);
+        
         hasMore = data.pagination?.has_more;
         pageKey = data.pagination?.page_key;
       }
       console.log('AllResults:', allResults);
       if (!cancelled) {
         setRawEthscriptionsApi(allResults);
+        
+        // Extract content_sha from ethscriptions (remove 0x prefix and lowercase)
         const userEthscriptionContentShas = allResults
           .map(e => e.content_sha?.toLowerCase().replace(/^0x/, ''))
           .filter(Boolean);
-        console.log('userEthscriptionContentShas:', userEthscriptionContentShas);
         setUserEthscriptionContentShas(userEthscriptionContentShas);
+        
         // Update Phunk ownership booleans
-        setOwnsDysto(userEthscriptionContentShas.some(id => dystoPhunkIdSet.has(id)));
-        setOwnsEther(userEthscriptionContentShas.some(id => etherPhunkIdSet.has(id)));
-        setOwnsMissing(userEthscriptionContentShas.some(id => missingPhunkIdSet.has(id)));
-        console.log('ownsDysto:', userEthscriptionContentShas.some(id => dystoPhunkIdSet.has(id)));
-        console.log('ownsEther:', userEthscriptionContentShas.some(id => etherPhunkIdSet.has(id)));
-        console.log('ownsMissing:', userEthscriptionContentShas.some(id => missingPhunkIdSet.has(id)));
-
-        // After fetching allResults
-        const imageEthscriptions = allResults.filter(e =>
-          e.content_uri && e.content_uri.startsWith('data:image')
+        setOwnsDysto(
+          Array.isArray((dystoPhunks as any)?.collection_items) &&
+          (dystoPhunks as any).collection_items.some((item: any) =>
+            rawEthscriptionsApi.some(e =>
+              e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
+              e.current_owner?.toLowerCase() === address?.toLowerCase()
+            )
+          )
         );
-
-        // If you want to filter for specific hashes (e.g., only Phunks)
-        const phunkHashes = new Set([
-          ...Array.from(dystoPhunkIdSet),
-          ...Array.from(etherPhunkIdSet),
-          ...Array.from(missingPhunkIdSet),
-        ]);
-        const ownedPhunkEthscriptions = allResults.filter(e =>
-          e.content_sha && phunkHashes.has(e.content_sha.toLowerCase().replace(/^0x/, ''))
+        setOwnsEther(
+          Array.isArray((etherPhunks as any)?.collection_items) &&
+          (etherPhunks as any).collection_items.some((item: any) =>
+            rawEthscriptionsApi.some(e =>
+              e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
+              e.current_owner?.toLowerCase() === address?.toLowerCase()
+            )
+          )
+        );
+        setOwnsMissing(
+          Array.isArray((missingPhunks as any)?.collection_items) &&
+          (missingPhunks as any).collection_items.some((item: any) =>
+            rawEthscriptionsApi.some(e =>
+              e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
+              e.current_owner?.toLowerCase() === address?.toLowerCase()
+            )
+          )
         );
       }
     })();
-    return () => { cancelled = true; };
+    
+    return () => { 
+      cancelled = true; 
+    };
   }, [hasMounted, isConnected, address]);
-
-  // Minimal direct fetch test
-  useEffect(() => {
-    if (!hasMounted) return;
-    (async () => {
-      let allResults = [];
-      let pageKey = undefined;
-      let hasMore = true;
-      const address = '0x78d3aaf8e3cd4b350635c79b7021bd76144c582c';
-      while (hasMore) {
-        const url = `/api/ethscriptions?owner=${address}` + (pageKey ? `&page_key=${pageKey}` : '');
-        const response = await fetch(url);
-        const data = await response.json();
-        allResults = allResults.concat(data.result || []);
-        hasMore = data.pagination?.has_more;
-        pageKey = data.pagination?.page_key;
-      }
-      setRawEthscriptionsApi(allResults);
-      setAllEthscriptions(allResults);
-      console.log('Fetched allResults:', allResults);
-    })();
-  }, [hasMounted]);
 
   useEffect(() => {
     if (showSplash) {
@@ -340,22 +408,39 @@ function Gate() {
     }
   }, [showSplash]);
 
-  // Find owned EtherPhunks
-  const ownedEtherPhunks = etherPhunks.collection_items.filter(item =>
-    userEthscriptionContentShas.includes(item.sha?.toLowerCase())
-  );
-  // Find owned Missing Phunks
-  const ownedMissingPhunks = Array.isArray((missingPhunks as any).collection_items)
-    ? (missingPhunks as any).collection_items.filter((item: any) =>
-        userEthscriptionContentShas.includes(item.sha?.toLowerCase())
-      )
-    : [];
-  // Find owned DystoPhunks
-  const ownedDystoPhunks = Array.isArray((dystoPhunks as any).collection_items)
-    ? (dystoPhunks as any).collection_items.filter((item: any) =>
-        userEthscriptionContentShas.includes(item.sha?.toLowerCase())
-      )
-    : [];
+  // Extra debug: print first 5 EtherPhunks and first 5 user ethscriptions SHAs, and comparison
+  const debugCompare = Array.isArray((etherPhunks as any)?.collection_items) && rawEthscriptionsApi.length > 0 ? (
+    <div style={{ color: '#ff0', fontSize: 11, margin: '8px 0' }}>
+      <div><b>First 5 EtherPhunks SHAs:</b> {(etherPhunks as any).collection_items.slice(0,5).map((item: any) => item.sha).join(', ')}</div>
+      <div><b>First 5 userEthscriptionContentShas:</b> {userEthscriptionContentShas.slice(0,5).join(', ')}</div>
+      <div><b>Comparison (first 5):</b></div>
+      {(etherPhunks as any).collection_items.slice(0,5).map((item: any, idx: number) => {
+        const sha = item.sha?.toLowerCase().slice(-64);
+        const match = userEthscriptionContentShas.slice(0,5).some(s => s.replace(/^0x/, '') === sha.replace(/^0x/, ''));
+        return <div key={idx}>{sha} match: {match ? 'YES' : 'NO'}</div>;
+      })}
+    </div>
+  ) : null;
+
+  // Extra deep debug: print full and sliced sha, and compare to all userEthscriptionContentShas
+  const deepDebugCompare = Array.isArray((etherPhunks as any)?.collection_items) && rawEthscriptionsApi.length > 0 ? (
+    <div style={{ color: '#ff0', fontSize: 11, margin: '8px 0' }}>
+      <div><b>First 5 EtherPhunks full sha:</b></div>
+      {(etherPhunks as any).collection_items.slice(0,5).map((item: any, idx: number) => (
+        <div key={idx}>
+          <div>full: {item.sha}</div>
+          <div>last64: {item.sha?.toLowerCase().slice(-64)}</div>
+          <div>Matches any userEthscriptionContentSha?: {
+            userEthscriptionContentShas.some(s => s.replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64)) ? 'YES' : 'NO'
+          }</div>
+        </div>
+      ))}
+      <div><b>First 5 content_sha from API:</b></div>
+      {rawEthscriptionsApi.slice(0,5).map((e, i) => (
+        <div key={i}>{e.content_sha}</div>
+      ))}
+    </div>
+  ) : null;
 
   // Debug output toggleable (for troubleshooting)
   const debugBlock = (
@@ -377,25 +462,39 @@ function Gate() {
     }}>
       <div><b>Wallet:</b> {address}</div>
       <div><b>userEthscriptionContentShas:</b> {JSON.stringify(userEthscriptionContentShas)}</div>
-      <div><b>dystoPhunkIdSet:</b> {JSON.stringify(Array.from(dystoPhunkIdSet))}</div>
       <div><b>etherPhunkIdSet:</b> {JSON.stringify(Array.from(etherPhunkIdSet))}</div>
       <div><b>missingPhunkIdSet:</b> {JSON.stringify(Array.from(missingPhunkIdSet))}</div>
-      <div><b>Owns Dysto:</b> {String(ownsDysto)}</div>
-      <div><b>Owns Ether:</b> {String(ownsEther)}</div>
-      <div><b>Owns Missing:</b> {String(ownsMissing)}</div>
-      <div><b>Owned EtherPhunks:</b> {JSON.stringify(ownedEtherPhunks.map(p => p.sha))}</div>
-      <div><b>Owned Missing Phunks:</b> {JSON.stringify(ownedMissingPhunks.map(p => p.sha))}</div>
-      <div><b>Owned DystoPhunks:</b> {JSON.stringify(ownedDystoPhunks.map(p => p.sha))}</div>
+      <div><b>dystoPhunkIdSet:</b> {JSON.stringify(Array.from(dystoPhunkIdSet))}</div>
+      <div><b>DystoPhunks collection_items count:</b> {Array.isArray((dystoPhunks as any)?.collection_items) ? (dystoPhunks as any).collection_items.length : 0}</div>
+      <div><b>Matched EtherPhunks:</b> {userEthscriptionContentShas.filter(id => etherPhunkIdSet.has(id)).join(', ')}</div>
+      <div><b>Matched MissingPhunks:</b> {userEthscriptionContentShas.filter(id => missingPhunkIdSet.has(id)).join(', ')}</div>
+      <div><b>Matched DystoPhunks:</b> {userEthscriptionContentShas.filter(id => dystoPhunkIdSet.has(id)).join(', ')}</div>
+      <div><b>All EtherPhunks sha:</b> {JSON.stringify(Array.from(etherPhunkIdSet))}</div>
+      <div><b>All MissingPhunks sha:</b> {JSON.stringify(Array.from(missingPhunkIdSet))}</div>
+      <div><b>All DystoPhunks sha:</b> {JSON.stringify(Array.from(dystoPhunkIdSet))}</div>
       <div><b>Raw Ethscriptions API:</b> {JSON.stringify(rawEthscriptionsApi)}</div>
       <div>
         <h3>Your Ethscriptions:</h3>
         <ul style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {rawEthscriptionsApi && rawEthscriptionsApi.map(e => (
-            <li key={e.content_sha} style={{ listStyle: 'none' }}>
+          {rawEthscriptionsApi && rawEthscriptionsApi.map((e, i) => (
+            <li key={e.content_sha ? `sha-${e.content_sha}` : `idx-${i}`} style={{ listStyle: 'none' }}>
               <div style={{ fontSize: 10 }}>{e.content_sha}</div>
               {e.content_uri && e.content_uri.startsWith('data:image') && (
-                <img src={e.content_uri} alt={e.content_sha} style={{ width: 64, height: 64, objectFit: 'contain', background: '#eee' }} />
+                <img
+                  src={e.content_uri}
+                  alt={e.content_sha}
+                  style={{
+                    width: 96,
+                    height: 96,
+                    objectFit: 'contain',
+                    background: 'transparent',
+                    borderRadius: 4,
+                    boxShadow: 'none',
+                    display: 'block'
+                  }}
+                />
               )}
+              <div style={{ fontSize: 10 }}>mimetype: {e.media_type || e.mime_type || e.mimetype || 'unknown'}</div>
             </li>
           ))}
         </ul>
@@ -434,6 +533,92 @@ function Gate() {
     </button>
   );
 
+  // Add debug output for counts
+  const phunkDebugCounts = (
+    <div style={{ color: '#ff0', fontSize: 13, margin: '8px 0', fontFamily: 'monospace' }}>
+      <div><b>Total ethscriptions fetched from API:</b> {rawEthscriptionsApi.length}</div>
+      <div><b>Total EtherPhunks in local JSON:</b> {etherPhunks.collection_items.length}</div>
+      <div><b>Matched EtherPhunks (displayed):</b> {ownedEtherPhunks.length}</div>
+    </div>
+  );
+
+  // Highlight section as each check completes
+  useEffect(() => {
+    if (showCheckResult && checkingIndex < checks.length) {
+      setHighlightedSection(checkingIndex);
+      const t = setTimeout(() => setHighlightedSection(null), 700);
+      return () => clearTimeout(t);
+    }
+  }, [showCheckResult, checkingIndex]);
+
+  // Terminal check animation rendering (compact, terminal style)
+  const renderTerminalChecks = () => (
+    <div style={{
+      background: 'rgba(0,0,0,0.92)',
+      border: '1px solid #0f0',
+      borderRadius: 4,
+      padding: '12px 18px 8px 18px',
+      minWidth: 260,
+      maxWidth: 320,
+      margin: '0 auto',
+      fontFamily: 'monospace',
+      fontSize: 15,
+      color: '#0ff',
+      boxShadow: '0 0 12px #0f08',
+      marginBottom: 0,
+      marginTop: 12,
+    }}>
+      {checks.map((check, idx) => {
+        if (idx > checkingIndex) return null;
+        const isCurrent = idx === checkingIndex;
+        const showMark = idx < checkingIndex || (isCurrent && showCheckResult);
+        return (
+          <div key={check.label} style={{ display: 'flex', alignItems: 'center', minHeight: 22, borderBottom: '1px solid #033', padding: '0 0 2px 0' }}>
+            <span style={{ color: '#0ff', minWidth: 0, flex: 1, textAlign: 'left' }}>{check.label}</span>
+            <span style={{ minWidth: 24, textAlign: 'right', fontWeight: 'bold', fontSize: 18 }}>
+              {showMark ? (
+                check.met ? (
+                  <span style={{ color: '#0f0' }}>✔</span>
+                ) : (
+                  <span style={{ color: '#f00' }}>✗</span>
+                )
+              ) : (
+                <span style={{ color: '#033' }}>...</span>
+              )}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // Debug for EtherPhunk 3885
+  const etherPhunk3885 = Array.isArray((etherPhunks as any)?.collection_items)
+    ? (etherPhunks as any).collection_items.find((p: any) => p.id === 3885 || p.id === '3885')
+    : undefined;
+  const sha3885 = etherPhunk3885?.sha?.toLowerCase();
+  const sha3885last64 = sha3885?.slice(-64);
+  const api3885 = rawEthscriptionsApi.find(e => e.content_sha?.toLowerCase().replace(/^0x/, '') === sha3885last64);
+  const [show3885Debug, setShow3885Debug] = useState(true);
+  useEffect(() => {
+    setShow3885Debug(true);
+    const t = setTimeout(() => setShow3885Debug(false), 20000);
+    return () => clearTimeout(t);
+  }, [address]);
+
+  // Debug for all expected MissingPhunks
+  const expectedMissingPhunks = Array.isArray((missingPhunks as any)?.collection_items)
+    ? (missingPhunks as any).collection_items.filter((item: any) =>
+        [10082, 10007, 10196, 10197, 10169, 10164, 10185].includes(Number(item.id))
+      )
+    : [];
+  const [showMissingDebug, setShowMissingDebug] = useState(true);
+  useEffect(() => {
+    setShowMissingDebug(true);
+    const t = setTimeout(() => setShowMissingDebug(false), 30000);
+    return () => clearTimeout(t);
+  }, [address]);
+
   if (!hasMounted) {
     return null;
   }
@@ -471,18 +656,19 @@ function Gate() {
   console.log('Owned EtherPhunks:', ownedEtherPhunks.map(p => p.sha));
   console.log('Owned Missing Phunks:', ownedMissingPhunks.map(p => p.sha));
 
+  // Only show image ethscriptions with image data
   const imageEthscriptions = rawEthscriptionsApi.filter(e =>
     e.content_uri && e.content_uri.startsWith('data:image')
   );
 
+  // Only show phunk ethscriptions with image data
   const phunkHashes = new Set([
     ...Array.from(dystoPhunkIdSet),
     ...Array.from(etherPhunkIdSet),
     ...Array.from(missingPhunkIdSet),
   ]);
-
   const ownedPhunkEthscriptions = rawEthscriptionsApi.filter(e =>
-    e.content_sha && phunkHashes.has(e.content_sha.toLowerCase().replace(/^0x/, ''))
+    e.content_sha && phunkHashes.has(e.content_sha.toLowerCase().replace(/^0x/, '')) && e.content_uri && e.content_uri.startsWith('data:image')
   );
 
   return (
@@ -490,6 +676,9 @@ function Gate() {
       {showDebug && debugBlock}
       {debugButton}
       <MatrixBackground />
+      {phunkDebugCounts}
+      {/* If not past the gate, show gate UI. If past, show next page only. */}
+      {!showGif ? (
       <div
         className="flex flex-col items-center justify-center min-h-screen"
         style={{
@@ -505,139 +694,26 @@ function Gate() {
           minWidth: 320,
           opacity: matrixFade ? 1 : 0,
           transition: 'opacity 1.2s',
+            maxHeight: '90vh',
+            overflowY: 'auto',
         }}
       >
         <div className="text-lg mb-4" style={{ color: '#0ff' }}>
           $ ./phunk-check.sh
         </div>
-        {!showResults ? (
-          <ul className="space-y-2">
-            {checks.slice(0, checkingIndex + 1).map((req, i) => (
-              <li key={req.label}>
-                <span style={{ color: '#0ff' }}>
-                  $ checking for {req.label}...<span className="animate-pulse">_</span>
-                </span>
-                {showCheckResult && i === checkingIndex ? (
-                  <div style={{ color: req.met ? '#0f0' : '#f00', marginLeft: '2rem', fontWeight: 'bold' }}>
-                    {req.label}
-                  </div>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <ul className="space-y-2">
-            {checks.map(req => (
-              <li key={req.label} className="flex items-center text-xl">
-                <span style={{ color: req.met ? '#0f0' : '#f00', marginRight: '1rem' }}>
-                  {req.met ? '✔' : '✖'}
-                </span>
-                <span style={{ color: req.met ? '#0f0' : '#f00' }}>{req.label}</span>
-              </li>
-            ))}
-          </ul>
+          {/* Terminal check animation only, no grid/images */}
+          {renderTerminalChecks()}
+          {/* Show lab.gif above the ENTER button if all checks are met and animation is complete */}
+          {checksComplete && allChecksMet && (
+            null
+          )}
+        </div>
+      ) : (
+        <div style={{ marginTop: 40, textAlign: 'center' }}>
+          <img src="/lab.gif" alt="Phunk Lab GIF" style={{ maxWidth: 400, borderRadius: 12, boxShadow: '0 0 24px #0f0a' }} />
+          {/* Add any additional next-page content here */}
+        </div>
         )}
-        {/* Show owned Phunks after checkmarks */}
-        <div style={{ color: 'white', marginTop: 24, textAlign: 'left', width: '100%' }}>
-          <h3 style={{ color: '#0ff', marginBottom: 4 }}>Owned V2 Phunks:</h3>
-          {ownsV2 ? (
-            <div>You own at least one V2 Phunk! (ERC-721)</div>
-          ) : (
-            <div style={{ color: '#f00' }}>None detected.</div>
-          )}
-          <h3 style={{ color: '#0ff', margin: '16px 0 4px 0' }}>Owned EtherPhunks:</h3>
-          {ownedEtherPhunks.length > 0 ? (
-            <ul>
-              {ownedEtherPhunks.map(phunk => (
-                <li key={phunk.sha} style={{ marginBottom: 4 }}>
-                  #{phunk.name || phunk.id || phunk.sha}
-                  {'image_url' in phunk && phunk.image_url ? (
-                    <img src={phunk.image_url as string} alt={phunk.name as string} style={{ width: 40, verticalAlign: 'middle', marginLeft: 8 }} />
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div style={{ color: '#f00' }}>None detected.</div>
-          )}
-          <h3 style={{ color: '#0ff', margin: '16px 0 4px 0' }}>Owned Missing Phunks:</h3>
-          {ownedMissingPhunks.length > 0 ? (
-            <ul>
-              {ownedMissingPhunks.map(phunk => (
-                <li key={phunk.sha} style={{ marginBottom: 4 }}>
-                  #{phunk.name || phunk.id || phunk.sha}
-                  {'image_url' in phunk && phunk.image_url ? (
-                    <img src={phunk.image_url as string} alt={phunk.name as string} style={{ width: 40, verticalAlign: 'middle', marginLeft: 8 }} />
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div style={{ color: '#f00' }}>None detected.</div>
-          )}
-          <h3 style={{ color: '#0ff', margin: '16px 0 4px 0' }}>Owned DystoPhunks:</h3>
-          {ownedDystoPhunks.length > 0 ? (
-            <ul>
-              {ownedDystoPhunks.map(phunk => (
-                <li key={phunk.sha} style={{ marginBottom: 4 }}>
-                  #{phunk.name || phunk.id || phunk.sha}
-                  {'image_url' in phunk && phunk.image_url ? (
-                    <img src={phunk.image_url as string} alt={phunk.name as string} style={{ width: 40, verticalAlign: 'middle', marginLeft: 8 }} />
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div style={{ color: '#f00' }}>None detected.</div>
-          )}
-        </div>
-        {/* Show all owned Ethscriptions (images if available) */}
-        <div style={{ marginTop: 24, width: '100%' }}>
-          <h3 style={{ color: '#0ff' }}>All Ethscriptions You Own ({rawEthscriptionsApi.length}):</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {rawEthscriptionsApi.map(e => (
-              <div key={e.content_sha} style={{ width: 80, textAlign: 'center', fontSize: 10 }}>
-                {e.content_uri && e.content_uri.startsWith('data:image') ? (
-                  <img src={e.content_uri} alt={e.content_sha} style={{ width: 64, height: 64, objectFit: 'contain', background: '#eee' }} />
-                ) : (
-                  <div style={{ width: 64, height: 64, background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    No image
-                  </div>
-                )}
-                <div style={{ wordBreak: 'break-all' }}>{e.content_sha?.slice(0, 8)}...</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <h3>Image Ethscriptions You Own ({imageEthscriptions.length}):</h3>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {imageEthscriptions.map(e => (
-              <div key={e.content_sha} style={{ width: 80, textAlign: 'center', fontSize: 10 }}>
-                <img src={e.content_uri} alt={e.content_sha} style={{ width: 64, height: 64, objectFit: 'contain', background: '#eee' }} />
-                <div style={{ wordBreak: 'break-all' }}>{e.content_sha?.slice(0, 8)}...</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div>
-          <h3>Phunk Ethscriptions You Own ({ownedPhunkEthscriptions.length}):</h3>
-          <ul>
-            {ownedPhunkEthscriptions.map(e => (
-              <li key={e.content_sha}>{e.content_sha}</li>
-            ))}
-          </ul>
-        </div>
-        {showResults && (
-          <button
-            className="mt-8 px-6 py-2 rounded bg-black border border-green-400 text-green-400 font-mono hover:bg-green-900"
-            onClick={() => disconnect()}
-            style={{ marginTop: '2rem' }}
-          >
-            exit
-          </button>
-        )}
-      </div>
     </>
   );
 }
