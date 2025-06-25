@@ -194,6 +194,8 @@ function Gate() {
   const allChecksMet = checks.every(c => c.met);
   // Track if check animation is finished
   const [checksComplete, setChecksComplete] = useState(false);
+  // Track if dystoterminal should be shown
+  const [showDystoTerminal, setShowDystoTerminal] = useState(false);
 
   useEffect(() => {
     if (isConnected) {
@@ -712,43 +714,89 @@ function Gate() {
           Disconnect Wallet
         </button>
       </div>
-      {/* If not past the gate, show gate UI. If past, show next page only. */}
-      {!showGif ? (
-      <div
-        className="flex flex-col items-center justify-center min-h-screen"
-        style={{
-          position: 'relative',
-          zIndex: 1,
-          fontFamily: 'monospace',
-          color: '#0f0',
-          background: 'rgba(0,0,0,0.85)',
-          borderRadius: '8px',
-          padding: '2rem 3rem',
-          boxShadow: '0 0 40px #0f0a',
-          marginTop: '4rem',
-          minWidth: 320,
-          opacity: matrixFade ? 1 : 0,
-          transition: 'opacity 1.2s',
-            maxHeight: '90vh',
-            overflowY: 'auto',
-        }}
-      >
-        <div className="text-lg mb-4" style={{ color: '#0ff' }}>
-          $ ./phunk-check.sh
-        </div>
-          {/* Terminal check animation only, no grid/images */}
-          {renderTerminalChecks()}
-          {/* Show lab.gif above the ENTER button if all checks are met and animation is complete */}
-          {checksComplete && allChecksMet && (
-            null
-          )}
-        </div>
+      
+      {/* Show dystoterminal if activated */}
+      {showDystoTerminal ? (
+        <iframe
+          src="/dystoterminal/index.html"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            border: 'none',
+            zIndex: 9999,
+          }}
+        />
       ) : (
-        <div style={{ marginTop: 40, textAlign: 'center' }}>
-          <img src="/lab.gif" alt="Phunk Lab GIF" style={{ maxWidth: 400, borderRadius: 12, boxShadow: '0 0 24px #0f0a' }} />
-          {/* Add any additional next-page content here */}
-        </div>
-        )}
+        /* If not past the gate, show gate UI. If past, show next page only. */
+        !showGif ? (
+          <div
+            className="flex flex-col items-center justify-center min-h-screen"
+            style={{
+              position: 'relative',
+              zIndex: 1,
+              fontFamily: 'monospace',
+              color: '#0f0',
+              background: 'rgba(0,0,0,0.85)',
+              borderRadius: '8px',
+              padding: '2rem 3rem',
+              boxShadow: '0 0 40px #0f0a',
+              marginTop: '4rem',
+              minWidth: 320,
+              opacity: matrixFade ? 1 : 0,
+              transition: 'opacity 1.2s',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div className="text-lg mb-4" style={{ color: '#0ff' }}>
+              $ ./phunk-check.sh
+            </div>
+            {/* Terminal check animation only, no grid/images */}
+            {renderTerminalChecks()}
+            {/* Show Next button if all checks are met and animation is complete */}
+            {checksComplete && allChecksMet && (
+              <button
+                onClick={() => setShowDystoTerminal(true)}
+                style={{
+                  background: 'rgba(0,255,0,0.2)',
+                  color: '#0f0',
+                  border: '2px solid #0f0',
+                  padding: '12px 24px',
+                  borderRadius: '8px',
+                  fontFamily: 'monospace',
+                  fontSize: '16px',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s',
+                  marginTop: '20px',
+                  fontWeight: 'bold',
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.background = 'rgba(0,255,0,0.3)';
+                  e.currentTarget.style.boxShadow = '0 0 20px #0f0';
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+              >
+                Next →
+              </button>
+            )}
+          </div>
+        ) : (
+          <div style={{ marginTop: 40, textAlign: 'center' }}>
+            <img src="/lab.gif" alt="Phunk Lab GIF" style={{ maxWidth: 400, borderRadius: 12, boxShadow: '0 0 24px #0f0a' }} />
+            {/* Add any additional next-page content here */}
+          </div>
+        )
+      )}
     </>
   );
 }
