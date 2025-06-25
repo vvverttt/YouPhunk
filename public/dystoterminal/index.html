@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dysto Desktop</title>
+    <style>
+        body {
+            background: transparent;
+            min-height: 100vh;
+            min-width: 100vw;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            position: relative;
+        }
+        #matrix-bg {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+            display: block;
+            opacity: 0.95;
+        }
+        .desktop {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0; left: 0;
+            z-index: 1;
+            background: transparent;
+        }
+        .desktop-icon {
+            width: 64px;
+            text-align: center;
+            color: #fff;
+            font-size: 13px;
+            margin: 30px 0 0 30px;
+            cursor: pointer;
+            user-select: none;
+            display: inline-block;
+        }
+        .desktop-icon img {
+            width: 48px;
+            height: 48px;
+            display: block;
+            margin: 0 auto 5px auto;
+            filter: drop-shadow(0 2px 4px #0008);
+        }
+        .desktop-icon:active {
+            filter: brightness(0.8);
+        }
+        .window {
+            position: absolute;
+            top: 80px;
+            left: 120px;
+            width: 540px;
+            min-width: 320px;
+            max-width: 90vw;
+            height: 340px;
+            min-height: 200px;
+            max-height: 80vh;
+            background: rgba(24,24,24,0.85);
+            border: 2px solid #222;
+            border-radius: 6px 6px 6px 6px;
+            box-shadow: 0 8px 32px #000b, 0 1.5px 0 #fff2 inset;
+            z-index: 10;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .window.active {
+            box-shadow: 0 8px 32px #000b, 0 1.5px 0 #00ff00 inset;
+            border-color: #00ff00;
+        }
+        .window-titlebar {
+            background: linear-gradient(90deg, #222 80%, #444 100%);
+            color: #fff;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            font-weight: bold;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            cursor: move;
+            user-select: none;
+        }
+        .window-titlebar .window-title {
+            flex: 1;
+            color: #fff;
+            letter-spacing: 0.5px;
+        }
+        .window-controls {
+            display: flex;
+            gap: 6px;
+        }
+        .window-btn {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: none;
+            margin-left: 2px;
+            cursor: pointer;
+            background: #444;
+            transition: background 0.2s;
+        }
+        .window-btn.close { background: #ff5f56; }
+        .window-btn.min { background: #ffbd2e; }
+        .window-btn.max { background: #27ca3f; }
+        .window-btn:hover { filter: brightness(1.2); }
+        .window-content {
+            background: rgba(16,16,16,0.85);
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+            font-size: 12px;
+        }
+        /* Terminal styles (from before, compact) */
+        .terminal-content {
+            font-family: 'Consolas', 'Courier New', monospace;
+            color: #fff;
+            background: #101010;
+            padding: 10px;
+            height: 100%;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .prompt {
+            color: #00ff00;
+            margin-bottom: 5px;
+            display: flex;
+            align-items: center;
+        }
+        .prompt-text {
+            margin-right: 8px;
+        }
+        .command {
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+        .output {
+            color: #cccccc;
+            white-space: pre-wrap;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        .error { color: #ff0000; }
+        .success { color: #00ff00; }
+        .info { color: #00ffff; }
+        .warning { color: #ffff00; }
+        .help-command { color: #00ff00; font-weight: bold; }
+        .help-description { color: #cccccc; margin-left: 20px; }
+        .category-title { color: #00ffff; font-weight: bold; font-size: 14px; margin: 10px 0 5px 0; }
+        .category-stats { color: #ffff00; margin-bottom: 10px; }
+        .data-item { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #333; }
+        .item-name { color: #ffffff; }
+        .item-count { color: #00ff00; font-weight: bold; }
+        .item-percentage { color: #ff00ff; margin-left: 10px; }
+        .command-input {
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12px;
+            outline: none;
+            width: 100%;
+            caret-color: #00ff00;
+        }
+        .welcome-message { color: #00ffff; margin-bottom: 15px; }
+        .stats-bar {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #00ff00;
+            padding: 5px;
+            font-size: 10px;
+            color: #00ff00;
+            z-index: 100;
+        }
+        @media (max-width: 700px) {
+            .window { width: 98vw; left: 1vw; min-width: 0; }
+        }
+        .resize-handle {
+            position: absolute;
+            z-index: 20;
+            background: transparent;
+        }
+        .resize-se {
+            width: 18px; height: 18px;
+            right: 0; bottom: 0;
+            cursor: se-resize;
+        }
+        .resize-e {
+            width: 8px; height: 100%;
+            right: 0; top: 0;
+            cursor: e-resize;
+        }
+        .resize-s {
+            width: 100%; height: 8px;
+            left: 0; bottom: 0;
+            cursor: s-resize;
+        }
+        .resize-ne {
+            width: 18px; height: 18px;
+            right: 0; top: 0;
+            cursor: ne-resize;
+        }
+        .taskbar {
+            position: fixed;
+            left: 0; right: 0; bottom: 0;
+            height: 44px;
+            background: rgba(20, 20, 20, 0.82);
+            box-shadow: 0 -2px 16px #000a;
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            z-index: 5;
+            border-top: 1px solid #222;
+        }
+        .taskbar-left, .taskbar-center, .taskbar-right {
+            display: flex;
+            align-items: center;
+        }
+        .taskbar-left { flex: 1; justify-content: flex-start; margin-left: 12px; }
+        .taskbar-center { flex: 2; justify-content: center; gap: 10px; }
+        .taskbar-right { flex: 1.5; justify-content: flex-end; gap: 12px; margin-right: 18px; }
+        .taskbar-icon {
+            width: 28px; height: 28px;
+            margin: 0 2px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.04);
+            box-shadow: 0 1px 4px #0004;
+            padding: 2px;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .taskbar-icon.start { width: 32px; height: 32px; margin-right: 8px; background: none; }
+        .taskbar-icon.sys { width: 20px; height: 20px; background: none; box-shadow: none; }
+        .taskbar-icon:hover { background: rgba(195,255,0,0.12); box-shadow: 0 2px 8px #c3ff0033; }
+        .taskbar-weather { color: #fff; font-size: 13px; margin-right: 10px; opacity: 0.85; }
+        .taskbar-clock { color: #fff; font-size: 13px; letter-spacing: 0.5px; }
+        .icon-rect, .app-rect {
+            width: 38px; height: 38px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #232b00 0%, #c3ff00 100%);
+            color: #232b00;
+            box-shadow: 0 2px 8px #c3ff0033, 0 0 0 2px #c3ff00 inset;
+            margin: 0 auto 4px auto;
+            letter-spacing: 1px;
+            transition: box-shadow 0.2s, background 0.2s;
+        }
+        .icon-rect.dysto, .app-rect.dysto {
+            background: linear-gradient(135deg, #c3ff00 0%, #232b00 100%);
+            color: #232b00;
+        }
+        .desktop-icon { user-select: none; }
+        .taskbar-app {
+            display: flex; align-items: center; gap: 6px; position: relative;
+            margin: 0 8px;
+        }
+        .app-label { color: #fff; font-size: 13px; opacity: 0.8; }
+        .app-indicator {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: none;
+            margin-left: 4px;
+            box-shadow: 0 0 0 0 #c3ff00;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .taskbar-app.active .app-indicator {
+            background: #c3ff00;
+            box-shadow: 0 0 8px 2px #c3ff00, 0 0 16px 4px #c3ff00aa;
+        }
+        .taskbar-icon.start {
+            width: 32px; height: 32px; margin-right: 8px; background: none; color: #c3ff00; font-size: 22px; display: flex; align-items: center; justify-content: center;
+            border-radius: 8px;
+            box-shadow: 0 0 8px #c3ff0033;
+        }
+        .taskbar-weather {
+            color: #c3ff00; font-size: 13px; margin-right: 10px; opacity: 0.95; font-family: 'Consolas', monospace; min-width: 120px; text-align: right; letter-spacing: 1px;
+            text-shadow: 0 0 8px #c3ff00, 0 0 2px #fff;
+            transition: color 0.5s;
+        }
+        .taskbar-clock {
+            color: #c3ff00; font-size: 15px; letter-spacing: 1.5px; font-family: 'Consolas', monospace;
+            text-shadow: 0 0 8px #c3ff00, 0 0 2px #fff;
+        }
+        .taskbar-search {
+            margin-left: 16px;
+            width: 180px;
+            height: 28px;
+            border-radius: 8px;
+            border: 1.5px solid #c3ff00;
+            background: rgba(24,32,0,0.7);
+            color: #c3ff00;
+            font-size: 14px;
+            font-family: 'Consolas', monospace;
+            padding: 0 12px;
+            outline: none;
+            box-shadow: 0 0 8px #c3ff00, 0 0 2px #fff;
+            transition: border 0.2s, box-shadow 0.2s;
+        }
+        .taskbar-search::placeholder {
+            color: #c3ff00bb;
+            letter-spacing: 1px;
+        }
+        .taskbar-search:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        .search-result-panel {
+            position: fixed;
+            left: 50%;
+            bottom: 60px;
+            transform: translateX(-50%);
+            min-width: 260px;
+            max-width: 420px;
+            background: rgba(24,32,0,0.92);
+            border: 2px solid #c3ff00;
+            border-radius: 12px;
+            box-shadow: 0 0 24px #c3ff00cc, 0 0 2px #fff;
+            color: #c3ff00;
+            font-family: 'Consolas', monospace;
+            font-size: 16px;
+            padding: 18px 24px;
+            z-index: 1000;
+            text-align: center;
+            letter-spacing: 1px;
+            animation: searchResultIn 0.3s cubic-bezier(.4,2,.6,1) both;
+        }
+        @keyframes searchResultIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(30px) scale(0.95); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
+        .search-popup {
+            position: fixed;
+            left: 50%;
+            bottom: 60px;
+            transform: translateX(-50%);
+            min-width: 320px;
+            max-width: 480px;
+            background: rgba(24,32,0,0.97);
+            border: 2.5px solid #c3ff00;
+            border-radius: 16px;
+            box-shadow: 0 0 32px #c3ff00cc, 0 0 2px #fff;
+            color: #c3ff00;
+            font-family: 'Consolas', monospace;
+            font-size: 16px;
+            padding: 0 0 12px 0;
+            z-index: 1001;
+            text-align: left;
+            letter-spacing: 1px;
+            animation: searchPopupIn 0.22s cubic-bezier(.4,2,.6,1) both;
+            display: none;
+        }
+        @keyframes searchPopupIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(30px) scale(0.95); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+        }
+        .search-popup-header {
+            padding: 18px 28px 8px 28px;
+            border-bottom: 1.5px solid #c3ff00;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .search-popup-time {
+            color: #c3ff00; font-size: 18px; font-family: 'Consolas', monospace; text-shadow: 0 0 8px #c3ff00, 0 0 2px #fff;
+        }
+        .search-popup-weather {
+            color: #c3ff00; font-size: 15px; font-family: 'Consolas', monospace; text-shadow: 0 0 8px #c3ff00, 0 0 2px #fff;
+        }
+        .search-popup-suggestions {
+            padding: 12px 28px 0 28px;
+        }
+        .search-suggestion {
+            background: rgba(24,32,0,0.85);
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin-bottom: 8px;
+            color: #c3ff00;
+            font-size: 16px;
+            font-family: 'Consolas', monospace;
+            box-shadow: 0 0 8px #c3ff00cc;
+            cursor: pointer;
+            border: 1.5px solid transparent;
+            transition: border 0.2s, background 0.2s;
+        }
+        .search-suggestion.active, .search-suggestion:hover {
+            border: 1.5px solid #c3ff00;
+            background: rgba(35,43,0,0.95);
+        }
+        .search-popup-noresult {
+            color: #c3ff00bb;
+            font-size: 15px;
+            padding: 16px 0 0 0;
+            text-align: center;
+        }
+        .login-overlay {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.97);
+            z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+            font-family: 'Consolas', monospace;
+            animation: fadeIn 0.7s;
+        }
+        .login-box {
+            background: rgba(24,32,0,0.98);
+            border: 2.5px solid #c3ff00;
+            border-radius: 18px;
+            box-shadow: 0 0 32px #c3ff00cc, 0 0 2px #fff;
+            padding: 48px 36px 36px 36px;
+            min-width: 340px;
+            text-align: center;
+        }
+        .login-title {
+            color: #c3ff00;
+            font-size: 2.1em;
+            font-weight: bold;
+            margin-bottom: 32px;
+            letter-spacing: 2px;
+            text-shadow: 0 0 12px #c3ff00, 0 0 2px #fff;
+        }
+        .login-btn {
+            background: #101c00;
+            color: #c3ff00;
+            border: 2px solid #c3ff00;
+            border-radius: 8px;
+            font-size: 1.1em;
+            padding: 10px 32px;
+            margin: 18px 0 0 0;
+            cursor: pointer;
+            font-family: 'Consolas', monospace;
+            box-shadow: 0 0 8px #c3ff00cc;
+            transition: background 0.2s, color 0.2s;
+            position: relative;
+            z-index: 1;
+        }
+        .login-btn:hover {
+            background: #c3ff00;
+            color: #101c00;
+        }
+        .phunk-checklist {
+            margin: 28px 0 0 0;
+            text-align: left;
+            color: #c3ff00;
+            font-size: 1.1em;
+        }
+        .phunk-checklist label {
+            display: flex; align-items: center; margin-bottom: 10px; font-size: 1.1em;
+        }
+        .phunk-checklist input[type=checkbox] {
+            accent-color: #c3ff00; margin-right: 12px; width: 18px; height: 18px;
+        }
+        .login-label {
+            color: #c3ff00; margin: 24px 0 8px 0; font-size: 1.1em;
+        }
+        .login-input {
+            background: #101c00;
+            color: #c3ff00;
+            border: 2px solid #c3ff00;
+            border-radius: 8px;
+            font-size: 1.1em;
+            padding: 8px 18px;
+            margin-bottom: 10px;
+            width: 80%;
+            font-family: 'Consolas', monospace;
+            box-shadow: 0 0 8px #c3ff00cc;
+        }
+        .login-error {
+            color: #ff3c00;
+            margin-top: 18px;
+            font-size: 1em;
+            min-height: 24px;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="matrix-bg"></canvas>
+    <div class="desktop">
+        <div class="desktop-icon" id="cmdIcon">
+            <div class="icon-rect dysto">DT</div>
+            <div>DystoLabz Terminal</div>
+        </div>
+    </div>
+    <div class="window" id="cmdWindow">
+        <div class="window-titlebar" id="windowTitlebar">
+            <span class="window-title">DystoLabz Terminal</span>
+            <div class="window-controls">
+                <button class="window-btn close" id="closeBtn"></button>
+                <button class="window-btn min" id="minBtn"></button>
+                <button class="window-btn max" id="maxBtn"></button>
+            </div>
+        </div>
+        <div class="window-content">
+            <div class="terminal-content" id="terminalContent">
+                <div class="welcome-message">
+                    DystoLabz Terminal v2.1.0 - Data Analysis System<br>
+                    Type 'help' for available commands.
+                </div>
+            </div>
+        </div>
+        <!-- Resizable handles -->
+        <div class="resize-handle resize-se"></div>
+        <div class="resize-handle resize-e"></div>
+        <div class="resize-handle resize-s"></div>
+        <div class="resize-handle resize-ne"></div>
+    </div>
+    <div class="taskbar">
+        <div class="taskbar-left">
+            <div class="taskbar-icon start">◉</div>
+        </div>
+        <div class="taskbar-center" id="taskbarCenter">
+            <input class="taskbar-search" type="text" placeholder="Search the system..." id="taskbarSearch" autocomplete="off">
+            <div class="taskbar-app" id="tbDysto" style="display:none;">
+                <span class="app-rect dysto">DT</span>
+                <span class="app-label">DystoLabz Terminal</span>
+                <span class="app-indicator" id="tbDystoActive"></span>
+            </div>
+        </div>
+        <div class="taskbar-right">
+            <span class="taskbar-weather" id="taskbarWeather"></span>
+            <span class="taskbar-clock" id="taskbarClock"></span>
+        </div>
+    </div>
+    <div id="passwordOverlay" style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.97);z-index:9999;display:flex;align-items:center;justify-content:center;">
+      <div style="background:rgba(24,32,0,0.98);border:2.5px solid #c3ff00;border-radius:18px;box-shadow:0 0 32px #c3ff00cc,0 0 2px #fff;padding:48px 36px 36px 36px;min-width:340px;text-align:center;">
+        <div style="color:#c3ff00;font-size:2.1em;font-weight:bold;margin-bottom:32px;letter-spacing:2px;text-shadow:0 0 12px #c3ff00,0 0 2px #fff;">Enter Password</div>
+        <input type="password" id="pcPassword" style="background:#101c00;color:#c3ff00;border:2px solid #c3ff00;border-radius:8px;font-size:1.1em;padding:8px 18px;margin-bottom:10px;width:80%;font-family:'Consolas',monospace;box-shadow:0 0 8px #c3ff00cc;" placeholder="Password">
+        <br>
+        <button id="pcPasswordBtn" style="background:#101c00;color:#c3ff00;border:2px solid #c3ff00;border-radius:8px;font-size:1.1em;padding:10px 32px;margin:18px 0 0 0;cursor:pointer;font-family:'Consolas',monospace;box-shadow:0 0 8px #c3ff00cc;transition:background 0.2s,color 0.2s;">Enter</button>
+        <div id="pcPasswordError" style="color:#ff3c00;margin-top:18px;font-size:1em;min-height:24px;"></div>
+      </div>
+    </div>
+    <script>
+        // Desktop icon click to open window
+        const cmdIcon = document.getElementById('cmdIcon');
+        const cmdWindow = document.getElementById('cmdWindow');
+        const closeBtn = document.getElementById('closeBtn');
+        const minBtn = document.getElementById('minBtn');
+        const maxBtn = document.getElementById('maxBtn');
+        let isMaximized = false;
+        let isMinimized = false;
+        // Taskbar DystoLabz Terminal active indicator
+        function updateTaskbarAppState() {
+            const tbDysto = document.getElementById('tbDysto');
+            const tbDystoActive = document.getElementById('tbDystoActive');
+            if (!tbDysto || !tbDystoActive) return;
+            if (cmdWindow.style.display === 'flex') {
+                tbDysto.classList.add('active');
+                tbDysto.style.display = 'flex';
+            } else {
+                tbDysto.classList.remove('active');
+                tbDysto.style.display = 'none';
+            }
+        }
+        // Hook into open/close events
+        cmdIcon.onclick = () => {
+            cmdWindow.style.display = 'flex';
+            cmdWindow.classList.add('active');
+            updateTaskbarAppState();
+            setRandomWeather();
+        };
+        closeBtn.onclick = () => {
+            cmdWindow.style.display = 'none';
+            updateTaskbarAppState();
+        };
+        minBtn.onclick = () => {
+            if (!isMinimized) {
+                cmdWindow.style.height = '32px';
+                cmdWindow.style.overflow = 'hidden';
+                isMinimized = true;
+            } else {
+                cmdWindow.style.height = '340px';
+                cmdWindow.style.overflow = 'visible';
+                isMinimized = false;
+            }
+        };
+        maxBtn.onclick = () => {
+            if (!isMaximized) {
+                cmdWindow.style.top = '0';
+                cmdWindow.style.left = '0';
+                cmdWindow.style.width = '100vw';
+                cmdWindow.style.height = '100vh';
+                cmdWindow.style.borderRadius = '0';
+                isMaximized = true;
+            } else {
+                cmdWindow.style.top = '80px';
+                cmdWindow.style.left = '120px';
+                cmdWindow.style.width = '540px';
+                cmdWindow.style.height = '340px';
+                cmdWindow.style.borderRadius = '6px';
+                isMaximized = false;
+            }
+        };
+        // Initial state
+        updateTaskbarAppState();
+        // Drag window
+        const titlebar = document.getElementById('windowTitlebar');
+        let drag = false, offsetX = 0, offsetY = 0;
+        titlebar.addEventListener('mousedown', (e) => {
+            drag = true;
+            offsetX = e.clientX - cmdWindow.offsetLeft;
+            offsetY = e.clientY - cmdWindow.offsetTop;
+            cmdWindow.classList.add('active');
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (drag && !isMaximized) {
+                cmdWindow.style.left = (e.clientX - offsetX) + 'px';
+                cmdWindow.style.top = (e.clientY - offsetY) + 'px';
+            }
+        });
+        document.addEventListener('mouseup', () => { drag = false; });
+        // Focus window on click
+        cmdWindow.addEventListener('mousedown', () => {
+            cmdWindow.classList.add('active');
+        });
+        // Terminal logic (same as before)
+        class DystoCommandLine {
+            constructor() {
+                this.data = [];
+                this.categoryData = {};
+                this.commandHistory = [];
+                this.historyIndex = -1;
+                this.terminalContent = document.getElementById('terminalContent');
+                this.init();
+            }
+            async init() {
+                await this.loadCSV();
+                this.analyzeCategories();
+                this.showWelcome();
+                this.createNewPrompt();
+            }
+            async loadCSV() {
+                try {
+                    const response = await fetch('4276.csv');
+                    const csvText = await response.text();
+                    this.data = this.parseCSV(csvText);
+                } catch (error) {
+                    console.error('Error loading CSV:', error);
+                    this.showError('Failed to load data file');
+                }
+            }
+            parseCSV(csvText) {
+                const lines = csvText.trim().split('\n');
+                const headers = lines[0].split(',');
+                const data = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const values = this.parseCSVLine(lines[i]);
+                    if (values.length === headers.length) {
+                        const row = {};
+                        headers.forEach((header, index) => {
+                            row[header.trim()] = values[index].trim();
+                        });
+                        data.push(row);
+                    }
+                }
+                return data;
+            }
+            parseCSVLine(line) {
+                const result = [];
+                let current = '';
+                let inQuotes = false;
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        result.push(current);
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                result.push(current);
+                return result;
+            }
+            analyzeCategories() {
+                const categories = ['type', 'gender', 'skin tone', 'count', 'accessories'];
+                categories.forEach(category => {
+                    const values = {};
+                    if (category === 'accessories') {
+                        this.data.forEach(row => {
+                            const accessories = row[category] || '';
+                            if (accessories.trim()) {
+                                const individualAccessories = accessories.split('/').map(acc => acc.trim()).filter(acc => acc);
+                                individualAccessories.forEach(accessory => {
+                                    if (values[accessory]) {
+                                        values[accessory]++;
+                                    } else {
+                                        values[accessory] = 1;
+                                    }
+                                });
+                            }
+                        });
+                    } else {
+                        this.data.forEach(row => {
+                            const value = row[category] || 'Unknown';
+                            if (values[value]) {
+                                values[value]++;
+                            } else {
+                                values[value] = 1;
+                            }
+                        });
+                    }
+                    const sortedValues = Object.entries(values)
+                        .map(([name, count]) => ({ name, count }))
+                        .sort((a, b) => b.count - a.count);
+                    this.categoryData[category] = sortedValues;
+                });
+            }
+            showWelcome() {
+                this.addOutput('DystoLabz Terminal initialized successfully.');
+                this.addOutput(`Loaded ${this.data.length} records from data file.`);
+                this.addOutput('Type "help" for available commands.\n');
+            }
+            createNewPrompt() {
+                // Remove id from any previous commandInput
+                const prevInputs = this.terminalContent.querySelectorAll('input.command-input');
+                prevInputs.forEach(input => input.removeAttribute('id'));
+                const promptDiv = document.createElement('div');
+                promptDiv.className = 'prompt';
+                promptDiv.innerHTML = `
+                    <span class="prompt-text">dysto@system:~$</span>
+                    <input type="text" class="command-input" id="commandInput" autocomplete="off">
+                `;
+                this.terminalContent.appendChild(promptDiv);
+                const input = promptDiv.querySelector('input.command-input');
+                input.focus();
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        this.executeCommand(input.value);
+                        input.setAttribute('disabled', 'disabled');
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        this.navigateHistory('up');
+                    } else if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        this.navigateHistory('down');
+                    }
+                });
+            }
+            executeCommand(command) {
+                const cmd = command.trim().toLowerCase();
+                this.commandHistory.push(command);
+                this.historyIndex = this.commandHistory.length;
+                this.addCommand(command);
+                switch (cmd) {
+                    case 'help':
+                        this.showHelp();
+                        break;
+                    case 'type':
+                        this.showCategory('type');
+                        break;
+                    case 'gender':
+                        this.showCategory('gender');
+                        break;
+                    case 'skin tone':
+                    case 'skintone':
+                        this.showCategory('skin tone');
+                        break;
+                    case 'count':
+                        this.showCategory('count');
+                        break;
+                    case 'accessories':
+                        this.showCategory('accessories');
+                        break;
+                    case 'clear':
+                        this.clearTerminal();
+                        break;
+                    case 'stats':
+                        this.showStats();
+                        break;
+                    case 'exit':
+                    case 'quit':
+                        this.addOutput('Terminal session ended.');
+                        break;
+                    default:
+                        if (cmd) {
+                            this.addError(`Command not found: ${command}`);
+                            this.addOutput('Type "help" for available commands.');
+                        }
+                }
+                this.createNewPrompt();
+            }
+            showHelp() {
+                this.addOutput('Available Commands:');
+                this.addOutput('');
+                this.addOutput('<span class="help-command">help</span><span class="help-description">- Show this help message</span>');
+                this.addOutput('<span class="help-command">type</span><span class="help-description">- Show type distribution</span>');
+                this.addOutput('<span class="help-command">gender</span><span class="help-description">- Show gender distribution</span>');
+                this.addOutput('<span class="help-command">skin tone</span><span class="help-description">- Show skin tone distribution</span>');
+                this.addOutput('<span class="help-command">count</span><span class="help-description">- Show count distribution</span>');
+                this.addOutput('<span class="help-command">accessories</span><span class="help-description">- Show individual accessories</span>');
+                this.addOutput('<span class="help-command">stats</span><span class="help-description">- Show general statistics</span>');
+                this.addOutput('<span class="help-command">clear</span><span class="help-description">- Clear terminal</span>');
+                this.addOutput('<span class="help-command">exit</span><span class="help-description">- Exit terminal</span>');
+            }
+            showCategory(category) {
+                const categoryData = this.categoryData[category];
+                const totalRecords = this.data.length;
+                this.addOutput(`<div class="category-title">${category.toUpperCase()} DISTRIBUTION</div>`);
+                this.addOutput(`<div class="category-stats">Total unique values: ${categoryData.length}</div>`);
+                this.addOutput('');
+                categoryData.forEach(item => {
+                    const percentage = ((item.count / totalRecords) * 100).toFixed(1);
+                    this.addOutput(`<div class="data-item">
+                        <span class="item-name">${this.escapeHtml(item.name)}</span>
+                        <span class="item-count">${item.count}</span>
+                        <span class="item-percentage">(${percentage}%)</span>
+                    </div>`);
+                });
+            }
+            showStats() {
+                this.addOutput('<div class="category-title">GENERAL STATISTICS</div>');
+                this.addOutput(`Total Records: ${this.data.length}`);
+                this.addOutput(`Categories: 5 (type, gender, skin tone, count, accessories)`);
+                this.addOutput('');
+                Object.keys(this.categoryData).forEach(category => {
+                    const uniqueCount = this.categoryData[category].length;
+                    this.addOutput(`${category.toUpperCase()}: ${uniqueCount} unique values`);
+                });
+            }
+            clearTerminal() {
+                this.terminalContent.innerHTML = '';
+                this.showWelcome();
+            }
+            addCommand(command) {
+                const commandDiv = document.createElement('div');
+                commandDiv.className = 'command';
+                commandDiv.textContent = command;
+                this.terminalContent.appendChild(commandDiv);
+            }
+            addOutput(content) {
+                const outputDiv = document.createElement('div');
+                outputDiv.className = 'output';
+                outputDiv.innerHTML = content;
+                this.terminalContent.appendChild(outputDiv);
+                this.scrollToBottom();
+            }
+            addError(message) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = message;
+                this.terminalContent.appendChild(errorDiv);
+                this.scrollToBottom();
+            }
+            navigateHistory(direction) {
+                const input = document.getElementById('commandInput');
+                if (direction === 'up' && this.historyIndex > 0) {
+                    this.historyIndex--;
+                    input.value = this.commandHistory[this.historyIndex];
+                } else if (direction === 'down' && this.historyIndex < this.commandHistory.length - 1) {
+                    this.historyIndex++;
+                    input.value = this.commandHistory[this.historyIndex];
+                } else if (direction === 'down' && this.historyIndex === this.commandHistory.length - 1) {
+                    this.historyIndex = this.commandHistory.length;
+                    input.value = '';
+                }
+            }
+            scrollToBottom() {
+                this.terminalContent.scrollTop = this.terminalContent.scrollHeight;
+            }
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+        // Initialize the Dysto Command Line
+        const terminal = new DystoCommandLine();
+        // Add resizable window logic
+        const resizableHandles = {
+            se: document.querySelector('.resize-se'),
+            e: document.querySelector('.resize-e'),
+            s: document.querySelector('.resize-s'),
+            ne: document.querySelector('.resize-ne'),
+        };
+        let resizing = false, resizeDir = '', startX = 0, startY = 0, startW = 0, startH = 0;
+        function startResize(e, dir) {
+            resizing = true;
+            resizeDir = dir;
+            startX = e.clientX;
+            startY = e.clientY;
+            startW = cmdWindow.offsetWidth;
+            startH = cmdWindow.offsetHeight;
+            document.body.style.userSelect = 'none';
+        }
+        function doResize(e) {
+            if (!resizing) return;
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+            if (resizeDir === 'se') {
+                cmdWindow.style.width = Math.max(320, startW + dx) + 'px';
+                cmdWindow.style.height = Math.max(200, startH + dy) + 'px';
+            } else if (resizeDir === 'e') {
+                cmdWindow.style.width = Math.max(320, startW + dx) + 'px';
+            } else if (resizeDir === 's') {
+                cmdWindow.style.height = Math.max(200, startH + dy) + 'px';
+            } else if (resizeDir === 'ne') {
+                cmdWindow.style.width = Math.max(320, startW + dx) + 'px';
+                cmdWindow.style.height = Math.max(200, startH - dy) + 'px';
+                cmdWindow.style.top = (cmdWindow.offsetTop + dy) + 'px';
+            }
+        }
+        function stopResize() {
+            resizing = false;
+            document.body.style.userSelect = '';
+        }
+        Object.entries(resizableHandles).forEach(([dir, el]) => {
+            el.addEventListener('mousedown', e => { e.stopPropagation(); startResize(e, dir); });
+        });
+        document.addEventListener('mousemove', doResize);
+        document.addEventListener('mouseup', stopResize);
+        // Enhanced Matrix background animation
+        const matrixCanvas = document.getElementById('matrix-bg');
+        const matrixCtx = matrixCanvas.getContext('2d');
+        let matrixW = window.innerWidth;
+        let matrixH = window.innerHeight;
+        let fontSize = 22;
+        let columns = Math.floor(matrixW / fontSize);
+        let drops = Array(columns).fill(1);
+        // Classic Matrix characters: katakana, numbers, uppercase
+        const matrixChars = 'アカサタナハマヤラワガザダバパイキシチニヒミリギジヂビウクスツヌフムユルグズヅブ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        function resizeMatrix() {
+            matrixW = window.innerWidth;
+            matrixH = window.innerHeight;
+            matrixCanvas.width = matrixW;
+            matrixCanvas.height = matrixH;
+            columns = Math.floor(matrixW / fontSize);
+            drops = Array(columns).fill(1);
+        }
+        window.addEventListener('resize', resizeMatrix);
+        resizeMatrix();
+        function drawMatrix() {
+            matrixCtx.fillStyle = 'rgba(0,0,0,0.18)';
+            matrixCtx.fillRect(0, 0, matrixW, matrixH);
+            matrixCtx.font = `bold ${fontSize}px monospace`;
+            for (let i = 0; i < columns; i++) {
+                const text = matrixChars[Math.floor(Math.random() * matrixChars.length)];
+                // Pure neon green
+                matrixCtx.shadowColor = '#c3ff00';
+                matrixCtx.shadowBlur = 18;
+                matrixCtx.fillStyle = '#c3ff00';
+                matrixCtx.fillText(text, i * fontSize, drops[i] * fontSize);
+                matrixCtx.shadowBlur = 0;
+                if (drops[i] * fontSize > matrixH && Math.random() > 0.96) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        }
+        setInterval(drawMatrix, 1000 / 30);
+        // Futuristic clock (hex time)
+        function updateTaskbarClock() {
+            const el = document.getElementById('taskbarClock');
+            if (!el) return;
+            const now = new Date();
+            // Hex time: hours, minutes, seconds in hex
+            const h = now.getHours().toString(16).toUpperCase().padStart(2, '0');
+            const m = now.getMinutes().toString(16).toUpperCase().padStart(2, '0');
+            const s = now.getSeconds().toString(16).toUpperCase().padStart(2, '0');
+            el.textContent = `${h}:${m}:${s}`;
+        }
+        setInterval(updateTaskbarClock, 1000);
+        updateTaskbarClock();
+        // Futuristic weather widget (show new weather only when DystoLabz Terminal is opened)
+        const weatherStates = [
+            { label: 'SOLAR STORM', color: '#ffea00' },
+            { label: 'ACID RAIN', color: '#00ffe7' },
+            { label: 'QUANTUM FOG', color: '#c3ff00' },
+            { label: 'PLASMA WINDS', color: '#ff00e7' },
+            { label: 'NEON SNOW', color: '#fff' },
+            { label: 'CYBER HAIL', color: '#00ffae' },
+            { label: 'DATA DRIZZLE', color: '#00c3ff' },
+            { label: 'IONIC CLOUDS', color: '#c3ff00' },
+            { label: 'GAMMA FLARES', color: '#ff3c00' },
+            { label: 'VIRAL MIST', color: '#ff00c3' }
+        ];
+        function setRandomWeather() {
+            const el = document.getElementById('taskbarWeather');
+            if (!el) return;
+            const state = weatherStates[Math.floor(Math.random() * weatherStates.length)];
+            el.textContent = state.label;
+            el.style.color = state.color;
+            el.style.textShadow = `0 0 12px ${state.color}, 0 0 2px #fff`;
+        }
+        // Show a random weather state on load
+        setRandomWeather();
+        // Futuristic search bar logic
+        const searchBar = document.getElementById('taskbarSearch');
+        const sciFiResults = [
+            'No results found in Dysto System.',
+            'Query returned 0 records.',
+            'Access denied: insufficient clearance.',
+            'Quantum search complete. No matches.',
+            'Plasma index scan: nothing found.',
+            'Neural net: no relevant data.',
+            'System anomaly detected. Try again.',
+            'Search node offline. Please retry.',
+            'No matching entries in the matrix.',
+            'Dysto AI: "I found nothing. Yet."'
+        ];
+        function showSearchResult(msg) {
+            let panel = document.createElement('div');
+            panel.className = 'search-result-panel';
+            panel.textContent = msg;
+            document.body.appendChild(panel);
+            setTimeout(() => {
+                panel.style.opacity = '0';
+                setTimeout(() => panel.remove(), 400);
+            }, 2200);
+        }
+        if (searchBar) {
+            searchBar.disabled = false;
+            searchBar.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    const val = searchBar.value.trim();
+                    if (val.length > 0) {
+                        const lower = val.toLowerCase();
+                        if (lower.includes('dysto') || lower.includes('terminal')) {
+                            showSearchResult('DystoLabz Terminal — System App Found');
+                        } else {
+                            const msg = sciFiResults[Math.floor(Math.random() * sciFiResults.length)];
+                            showSearchResult(msg);
+                        }
+                        searchBar.value = '';
+                    }
+                }
+            });
+        }
+        // --- Futuristic Windows-like search popup ---
+        const searchPopup = document.createElement('div');
+        searchPopup.className = 'search-popup';
+        searchPopup.innerHTML = `
+            <div class="search-popup-header">
+                <span class="search-popup-time" id="popupTime"></span>
+                <span class="search-popup-weather" id="popupWeather"></span>
+            </div>
+            <div class="search-popup-suggestions" id="popupSuggestions"></div>
+        `;
+        document.body.appendChild(searchPopup);
+
+        function updatePopupTime() {
+            const el = document.getElementById('popupTime');
+            if (!el) return;
+            const now = new Date();
+            const h = now.getHours().toString(16).toUpperCase().padStart(2, '0');
+            const m = now.getMinutes().toString(16).toUpperCase().padStart(2, '0');
+            const s = now.getSeconds().toString(16).toUpperCase().padStart(2, '0');
+            el.textContent = `${h}:${m}:${s}`;
+        }
+        setInterval(updatePopupTime, 1000);
+        function updatePopupWeather() {
+            const el = document.getElementById('popupWeather');
+            if (!el) return;
+            // Use the same weather as the taskbar
+            const taskbarWeather = document.getElementById('taskbarWeather');
+            el.textContent = taskbarWeather ? taskbarWeather.textContent : '';
+            el.style.color = taskbarWeather ? taskbarWeather.style.color : '#c3ff00';
+            el.style.textShadow = taskbarWeather ? taskbarWeather.style.textShadow : '';
+        }
+        setInterval(updatePopupWeather, 2000);
+
+        function showSearchPopup() {
+            searchPopup.style.display = 'block';
+            updatePopupTime();
+            updatePopupWeather();
+            updatePopupSuggestions();
+        }
+        function hideSearchPopup() {
+            searchPopup.style.display = 'none';
+        }
+        function updatePopupSuggestions() {
+            const input = searchBar.value.trim().toLowerCase();
+            const suggestions = document.getElementById('popupSuggestions');
+            suggestions.innerHTML = '';
+            if (input.length === 0) {
+                suggestions.innerHTML = '<div class="search-popup-noresult">Type to search system apps...</div>';
+                return;
+            }
+            if ('dysto terminal'.startsWith(input) || 'dystoterminal'.startsWith(input) || 'dystolabz'.startsWith(input) || 'dt'.startsWith(input) || input === 'd' || input === 'dy' || input === 'dys' || input === 'dyst' || input === 'dysto' || input === 'dystot' || input === 'dystote' || input === 'dystoter' || input === 'dystoterm' || input === 'dystotermi' || input === 'dystotermina' || input === 'dystol' || input === 'dystola' || input === 'dystolab') {
+                const el = document.createElement('div');
+                el.className = 'search-suggestion active';
+                el.textContent = 'DystoLabz Terminal — System App';
+                el.onclick = () => {
+                    hideSearchPopup();
+                    cmdWindow.style.display = 'flex';
+                    cmdWindow.classList.add('active');
+                    updateTaskbarAppState();
+                    setRandomWeather();
+                };
+                suggestions.appendChild(el);
+            } else {
+                suggestions.innerHTML = '<div class="search-popup-noresult">No matching system apps.</div>';
+            }
+        }
+        if (searchBar) {
+            searchBar.disabled = false;
+            searchBar.addEventListener('focus', showSearchPopup);
+            searchBar.addEventListener('input', updatePopupSuggestions);
+            searchBar.addEventListener('keydown', e => {
+                if (e.key === 'Escape') {
+                    hideSearchPopup();
+                    searchBar.blur();
+                }
+                if (e.key === 'Enter') {
+                    const input = searchBar.value.trim().toLowerCase();
+                    if ('dysto terminal'.startsWith(input) || 'dystoterminal'.startsWith(input) || 'dystolabz'.startsWith(input) || 'dt'.startsWith(input) || input === 'd' || input === 'dy' || input === 'dys' || input === 'dyst' || input === 'dysto' || input === 'dystot' || input === 'dystote' || input === 'dystoter' || input === 'dystoterm' || input === 'dystotermi' || input === 'dystotermina' || input === 'dystol' || input === 'dystola' || input === 'dystolab') {
+                        hideSearchPopup();
+                        cmdWindow.style.display = 'flex';
+                        cmdWindow.classList.add('active');
+                        updateTaskbarAppState();
+                        setRandomWeather();
+                        searchBar.value = '';
+                    }
+                }
+            });
+            document.addEventListener('mousedown', e => {
+                if (!searchPopup.contains(e.target) && e.target !== searchBar) {
+                    hideSearchPopup();
+                }
+            });
+        }
+        // PC-style password overlay logic
+        const passwordOverlay = document.getElementById('passwordOverlay');
+        const pcPassword = document.getElementById('pcPassword');
+        const pcPasswordBtn = document.getElementById('pcPasswordBtn');
+        const pcPasswordError = document.getElementById('pcPasswordError');
+        function tryPassword() {
+            if (pcPassword.value === 'PhunkisPunk') {
+                passwordOverlay.style.display = 'none';
+            } else {
+                pcPasswordError.textContent = 'Incorrect password.';
+            }
+        }
+        pcPasswordBtn.onclick = tryPassword;
+        pcPassword.addEventListener('keydown', e => { if (e.key === 'Enter') tryPassword(); });
+        // Autofocus on load
+        window.addEventListener('DOMContentLoaded', () => { pcPassword.focus(); });
+    </script>
+</body>
+</html> 
