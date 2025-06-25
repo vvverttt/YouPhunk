@@ -50,72 +50,6 @@ function useHasMounted() {
   return hasMounted;
 }
 
-function MatrixBackground() {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    let width = window.innerWidth;
-    let height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
-    const fontSize = 28;
-    let columns = Math.ceil(width / fontSize) + 2;
-    let drops = Array(columns).fill(1).map(() => Math.random() * (height / fontSize));
-
-    function handleResize() {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      canvas.width = width;
-      canvas.height = height;
-      columns = Math.ceil(width / fontSize) + 2;
-      drops = Array(columns).fill(1).map(() => Math.random() * (height / fontSize));
-    }
-    window.addEventListener('resize', handleResize);
-
-    function draw() {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = '#0f0';
-      ctx.font = fontSize + 'px monospace';
-      for (let i = 0; i < drops.length; i++) {
-        const text = String.fromCharCode(0x30A0 + Math.random() * 96);
-        const drift = Math.sin(Date.now() / 1000 + i) * 2;
-        ctx.fillText(text, i * fontSize + drift, drops[i] * fontSize);
-        if (drops[i] * fontSize > height && Math.random() > 0.995) {
-          drops[i] = 0;
-        }
-        drops[i] += 0.5;
-      }
-    }
-    let animationId;
-    function animate() {
-      draw();
-      animationId = requestAnimationFrame(animate);
-    }
-    animate();
-    return () => {
-      cancelAnimationFrame(animationId);
-      window.removeEventListener('resize', handleResize);
-    };
-  }, []);
-  return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        zIndex: 0,
-        width: '100vw',
-        height: '100vh',
-        pointerEvents: 'none',
-        display: 'block',
-      }}
-    />
-  );
-}
-
 function Gate() {
   const hasMounted = useHasMounted();
   const { address, isConnected } = useAccount();
@@ -197,6 +131,76 @@ function Gate() {
   // Track if dystoterminal should be shown
   const [showDystoTerminal, setShowDystoTerminal] = useState(false);
 
+  // Add fade state for seamless transition
+  const [fadeSplash, setFadeSplash] = useState(false);
+
+  // Remove automatic phunk checking - only check when manually triggered
+  const [hasCheckedPhunks, setHasCheckedPhunks] = useState(false);
+  const [isCheckingPhunks, setIsCheckingPhunks] = useState(false);
+  const [currentCheckingPhunk, setCurrentCheckingPhunk] = useState<string>('');
+
+  // Add state to track how many checks are done
+  const [checkedRows, setCheckedRows] = useState(0);
+
+  // Update checkPhunks to incrementally reveal each check
+  const checkPhunks = async () => {
+    if (!address || isCheckingPhunks) return;
+    setIsCheckingPhunks(true);
+    setHasCheckedPhunks(false);
+    setCurrentCheckingPhunk('');
+    setCheckedRows(0);
+    try {
+      // Check V2 ownership
+      setCurrentCheckingPhunk('V2 Phunk');
+      if (window.ethereum) {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const v2 = new ethers.Contract(V2_PHUNKS_CONTRACT, ERC721_ABI, provider);
+        const v2Bal = await v2.balanceOf(address);
+        setOwnsV2(v2Bal.gte(1));
+      }
+      setCheckedRows(1);
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Check ethscriptions
+      setCurrentCheckingPhunk('EtherPhunk');
+      const fetchAddress = address.toLowerCase();
+      let allResults = [];
+      let pageKey = undefined;
+      let hasMore = true;
+      while (hasMore) {
+        const url = `https://api.ethscriptions.com/v2/ethscriptions?current_owner=${fetchAddress}` + (pageKey ? `&page_key=${pageKey}` : '');
+        const response = await fetch(url);
+        const data = await response.json();
+        const results = Array.isArray(data) ? data : (data.result || []);
+        allResults = allResults.concat(results);
+        hasMore = data.pagination?.has_more;
+        pageKey = data.pagination?.page_key;
+      }
+      setRawEthscriptionsApi(allResults);
+      const userEthscriptionContentShas = allResults
+        .map(e => e.content_sha?.toLowerCase().replace(/^0x/, ''))
+        .filter(Boolean);
+      setUserEthscriptionContentShas(userEthscriptionContentShas);
+      setCheckedRows(2);
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      setCurrentCheckingPhunk('Missing Phunk');
+      setCheckedRows(3);
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      setCurrentCheckingPhunk('DystoPhunk');
+      setCheckedRows(4);
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      setHasCheckedPhunks(true);
+      setCurrentCheckingPhunk('');
+    } catch (error) {
+      setCurrentCheckingPhunk('');
+    } finally {
+      setIsCheckingPhunks(false);
+    }
+  };
+
   useEffect(() => {
     if (isConnected) {
       setTimeout(() => setMatrixFade(true), 400); // fade Matrix after connect
@@ -252,158 +256,41 @@ function Gate() {
   const [showGif, setShowGif] = useState(false);
 
   useEffect(() => {
-    if (!hasMounted || !isConnected || !address) {
-      setOwnsV2(false);
-      return;
-    }
-    (async () => {
-      const V2_PHUNKS_CONTRACT = '0xf07468eAd8cf26c752C676E43C814FEe9c8CF402';
-      const ERC721_ABI = [
-        'function balanceOf(address owner) view returns (uint256)'
-      ];
-      if (!window.ethereum) {
-        console.error('No injected Ethereum provider found (is MetaMask installed?)');
-        return;
-      }
-      try {
-        const provider = new ethers.providers.Web3Provider(window.ethereum);
-        const v2 = new ethers.Contract(V2_PHUNKS_CONTRACT, ERC721_ABI, provider);
-        const v2Bal = await v2.balanceOf(address);
-        console.log('[V2 CHECK] V2 Phunk balance:', v2Bal.toString(), 'for address:', address);
-        setOwnsV2(v2Bal.gte(1));
-      } catch (err) {
-        console.error('[V2 CHECK] Error:', err);
-        setOwnsV2(false);
-      }
-    })();
-  }, [hasMounted, isConnected, address]);
-
-  useEffect(() => {
-    if (!hasMounted || !isConnected || !address) {
-      setRawEthscriptionsApi([]);
-      setUserEthscriptionContentShas([]);
-      setOwnsDysto(false);
-      setOwnsEther(false);
-      setOwnsMissing(false);
-      return;
-    }
-
-    // Only fetch for the connected address
-    const fetchAddress = address.toLowerCase();
-    let cancelled = false;
-    (async () => {
-      let allResults = [];
-      let pageKey = undefined;
-      let hasMore = true;
-      while (hasMore) {
-        const url = `https://api.ethscriptions.com/v2/ethscriptions?current_owner=${fetchAddress}` + (pageKey ? `&page_key=${pageKey}` : '');
-        console.log('Fetching URL:', url);
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        // Handle both array and paginated response formats
-        const results = Array.isArray(data) ? data : (data.result || []);
-        allResults = allResults.concat(results);
-        
-        hasMore = data.pagination?.has_more;
-        pageKey = data.pagination?.page_key;
-      }
-      console.log('AllResults:', allResults);
-      if (!cancelled) {
-        setRawEthscriptionsApi(allResults);
-        
-        // Extract content_sha from ethscriptions (remove 0x prefix and lowercase)
-        const userEthscriptionContentShas = allResults
-          .map(e => e.content_sha?.toLowerCase().replace(/^0x/, ''))
-          .filter(Boolean);
-        setUserEthscriptionContentShas(userEthscriptionContentShas);
-        
-        // Update Phunk ownership booleans
-        setOwnsDysto(
-          Array.isArray((dystoPhunks as any)?.collection_items) &&
-          (dystoPhunks as any).collection_items.some((item: any) =>
-            rawEthscriptionsApi.some(e =>
-              e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
-              e.current_owner?.toLowerCase() === address?.toLowerCase()
-            )
-          )
-        );
-        setOwnsEther(
-          Array.isArray((etherPhunks as any)?.collection_items) &&
-          (etherPhunks as any).collection_items.some((item: any) =>
-            rawEthscriptionsApi.some(e =>
-              e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
-              e.current_owner?.toLowerCase() === address?.toLowerCase()
-            )
-          )
-        );
-        setOwnsMissing(
-          Array.isArray((missingPhunks as any)?.collection_items) &&
-          (missingPhunks as any).collection_items.some((item: any) =>
-            rawEthscriptionsApi.some(e =>
-              e.content_sha?.toLowerCase().replace(/^0x/, '') === item.sha?.toLowerCase().slice(-64) &&
-              e.current_owner?.toLowerCase() === address?.toLowerCase()
-            )
-          )
-        );
-      }
-    })();
-    
-    return () => { 
-      cancelled = true; 
-    };
-  }, [hasMounted, isConnected, address]);
-
-  useEffect(() => {
     if (showSplash) {
       setTypedMessage('');
       setShowCursor(true);
-      let preBlinkCount = 0;
-      let preBlinkTimer;
-      let typeInterval;
-      let postBlinkCount = 0;
-      let postBlinkTimer;
-      // Pre-typing blink (6 times = 3 full on/off cycles)
-      const preBlink = () => {
-        setShowCursor((prev) => !prev);
-        preBlinkCount++;
-        if (preBlinkCount < 12) { // 6 full blinks (on/off)
-          preBlinkTimer = setTimeout(preBlink, 400);
+      setFadeSplash(false);
+      
+      // Type out the message character by character
+      let currentIndex = 0;
+      const typeInterval = setInterval(() => {
+        if (currentIndex < splashMessage.length) {
+          setTypedMessage(splashMessage.slice(0, currentIndex + 1));
+          currentIndex++;
         } else {
-          setShowCursor(true);
-          // Start typing
-          let i = 0;
-          typeInterval = setInterval(() => {
-            if (i < splashMessage.length) {
-              setTypedMessage(splashMessage.slice(0, i + 1));
-              i++;
-            } else {
-              clearInterval(typeInterval);
-              setShowCursor(true);
-              // Post-typing blink (3 times)
-              const postBlink = () => {
-                setShowCursor((prev) => !prev);
-                postBlinkCount++;
-                if (postBlinkCount < 6) { // 3 full on/off cycles
-                  postBlinkTimer = setTimeout(postBlink, 400);
-                } else {
-                  setShowCursor(true);
-                  setTimeout(() => setShowSplash(false), 400);
-                }
-              };
-              postBlink();
-            }
-          }, 100);
+          clearInterval(typeInterval);
+          // Keep cursor blinking after typing is complete
         }
-      };
-      preBlink();
+      }, 100); // Type speed
+      
       return () => {
-        clearTimeout(preBlinkTimer);
         clearInterval(typeInterval);
-        clearTimeout(postBlinkTimer);
       };
     }
-  }, [showSplash]);
+  }, [showSplash, splashMessage]);
+
+  // Add cursor blinking animation
+  useEffect(() => {
+    if (showSplash && typedMessage === splashMessage) {
+      const blinkInterval = setInterval(() => {
+        setShowCursor(prev => !prev);
+      }, 500); // Blink every 500ms
+      
+      return () => {
+        clearInterval(blinkInterval);
+      };
+    }
+  }, [showSplash, typedMessage, splashMessage]);
 
   // Extra debug: print first 5 EtherPhunks and first 5 user ethscriptions SHAs, and comparison
   const debugCompare = Array.isArray((etherPhunks as any)?.collection_items) && rawEthscriptionsApi.length > 0 ? (
@@ -499,37 +386,6 @@ function Gate() {
     </div>
   );
 
-  const debugButton = (
-    <button
-      onClick={() => setShowDebug(!showDebug)}
-      style={{
-        position: 'fixed',
-        top: '10px',
-        right: '10px',
-        zIndex: 10000,
-        background: 'rgba(0,0,0,0.8)',
-        color: '#0f0',
-        border: '1px solid #0f0',
-        padding: '8px 12px',
-        borderRadius: '4px',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-      }}
-      onMouseOver={(e) => {
-        e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
-        e.currentTarget.style.boxShadow = '0 0 10px #0f0';
-      }}
-      onMouseOut={(e) => {
-        e.currentTarget.style.background = 'rgba(0,0,0,0.8)';
-        e.currentTarget.style.boxShadow = 'none';
-      }}
-    >
-      {showDebug ? 'Hide Debug' : 'Show Debug'}
-    </button>
-  );
-
   // Add debug output for counts
   const phunkDebugCounts = (
     <div style={{ color: '#ff0', fontSize: 13, margin: '8px 0', fontFamily: 'monospace' }}>
@@ -548,7 +404,7 @@ function Gate() {
     }
   }, [showCheckResult, checkingIndex]);
 
-  // Terminal check animation rendering (compact, terminal style)
+  // Update renderTerminalChecks to only show up to checkedRows
   const renderTerminalChecks = () => (
     <div style={{
       background: 'rgba(0,0,0,0.92)',
@@ -565,27 +421,14 @@ function Gate() {
       marginBottom: 0,
       marginTop: 12,
     }}>
-      {checks.map((check, idx) => {
-        if (idx > checkingIndex) return null;
-        const isCurrent = idx === checkingIndex;
-        const showMark = idx < checkingIndex || (isCurrent && showCheckResult);
-        return (
-          <div key={check.label} style={{ display: 'flex', alignItems: 'center', minHeight: 22, borderBottom: '1px solid #033', padding: '0 0 2px 0' }}>
-            <span style={{ color: '#0ff', minWidth: 0, flex: 1, textAlign: 'left' }}>{check.label}</span>
-            <span style={{ minWidth: 24, textAlign: 'right', fontWeight: 'bold', fontSize: 18 }}>
-              {showMark ? (
-                check.met ? (
-                  <span style={{ color: '#0f0' }}>✔</span>
-                ) : (
-                  <span style={{ color: '#f00' }}>✗</span>
-                )
-              ) : (
-                <span style={{ color: '#033' }}>...</span>
-              )}
-            </span>
-          </div>
-        );
-      })}
+      {checks.slice(0, checkedRows).map((check, idx) => (
+        <div key={check.label} style={{ display: 'flex', alignItems: 'center', minHeight: 22, borderBottom: '1px solid #033', padding: '0 0 2px 0' }}>
+          <span style={{ color: '#0ff', minWidth: 0, flex: 1, textAlign: 'left' }}>{check.label}</span>
+          <span style={{ minWidth: 24, textAlign: 'right', fontWeight: 'bold', fontSize: 18 }}>
+            <span style={{ color: check.met ? '#0f0' : '#f00' }}>{check.met ? '✔' : '✗'}</span>
+          </span>
+        </div>
+      ))}
     </div>
   );
 
@@ -622,14 +465,44 @@ function Gate() {
 
   if (showSplash) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-white" style={{ background: '#000' }}>
-        <MatrixBackground />
+      <div className="flex flex-col items-center justify-center min-h-screen text-white" style={{ background: '#101010', transition: 'opacity 0.5s', opacity: fadeSplash ? 0 : 1 }}>
         <div className="text-3xl font-mono text-green-400" style={{ zIndex: 1, position: 'relative', letterSpacing: '0.1em', minHeight: '2.5em' }}>
           <span style={{ display: 'inline-block', minWidth: '1ch' }}>
             {typedMessage}
             <span style={{ visibility: showCursor ? 'visible' : 'hidden' }}>|</span>
           </span>
         </div>
+        <button
+          onClick={() => { setShowSplash(false); setFadeSplash(false); }}
+          style={{
+            background: 'rgba(0,255,0,0.2)',
+            color: '#0f0',
+            border: '2px solid #0f0',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            fontFamily: 'monospace',
+            fontSize: '16px',
+            cursor: 'pointer',
+            transition: 'all 0.3s',
+            marginTop: '32px',
+            fontWeight: 'bold',
+            textTransform: 'uppercase',
+            letterSpacing: '1px',
+            zIndex: 2,
+          }}
+          onMouseOver={e => {
+            e.currentTarget.style.background = 'rgba(0,255,0,0.3)';
+            e.currentTarget.style.boxShadow = '0 0 20px #0f0';
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseOut={e => {
+            e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+            e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+        >
+          Enter
+        </button>
         {/* Debug UI for dev only */}
         {showDebug && debugBlock}
       </div>
@@ -638,8 +511,7 @@ function Gate() {
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen text-white">
-        <MatrixBackground />
+      <div className="flex flex-col items-center justify-center min-h-screen text-white" style={{ background: '#101010' }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <h1 style={{ color: '#0f0', fontSize: '2rem', marginBottom: '1rem', fontFamily: 'monospace' }}>
             You Need A Phunk
@@ -650,7 +522,61 @@ function Gate() {
         </div>
         <ConnectButton />
         {showDebug && debugBlock}
-        {debugButton}
+        {/* Both buttons: top-right, stacked (for all states) */}
+        <div style={{ position: 'fixed', top: '10px', right: '10px', zIndex: 10000, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <button
+            onClick={() => disconnect()}
+            style={{
+              background: 'rgba(0,0,0,0.8)',
+              color: '#0f0',
+              border: '1px solid #0f0',
+              padding: '8px 12px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              width: 'auto',
+              alignSelf: 'flex-end',
+            }}
+            onMouseOver={e => {
+              e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+              e.currentTarget.style.boxShadow = '0 0 10px #0f0';
+            }}
+            onMouseOut={e => {
+              e.currentTarget.style.background = 'rgba(0,0,0,0.8)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            Disconnect
+          </button>
+          <button
+            onClick={() => setShowDebug(!showDebug)}
+            style={{
+              background: 'rgba(0,0,0,0.8)',
+              color: '#0f0',
+              border: '1px solid #0f0',
+              padding: '8px 12px',
+              borderRadius: '4px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              width: 'auto',
+              alignSelf: 'flex-end',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+              e.currentTarget.style.boxShadow = '0 0 10px #0f0';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.background = 'rgba(0,0,0,0.8)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            {showDebug ? 'Hide Debug' : 'Show Debug'}
+          </button>
+        </div>
       </div>
     );
   }
@@ -679,42 +605,61 @@ function Gate() {
   return (
     <>
       {showDebug && debugBlock}
-      {debugButton}
-      <MatrixBackground />
-      {phunkDebugCounts}
-      {/* Wallet disconnect button */}
-      <div style={{
-        position: 'fixed',
-        top: '10px',
-        left: '10px',
-        zIndex: 10000,
-      }}>
+      <div style={{ position: 'fixed', top: '10px', right: '10px', zIndex: 10000, display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <button
           onClick={() => disconnect()}
           style={{
-            background: 'rgba(255,0,0,0.8)',
-            color: '#fff',
-            border: '1px solid #f00',
+            background: 'rgba(0,0,0,0.8)',
+            color: '#0f0',
+            border: '1px solid #0f0',
             padding: '8px 12px',
             borderRadius: '4px',
             fontFamily: 'monospace',
             fontSize: '12px',
             cursor: 'pointer',
             transition: 'all 0.2s',
+            width: 'auto',
+            alignSelf: 'flex-end',
           }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.background = 'rgba(255,0,0,0.9)';
-            e.currentTarget.style.boxShadow = '0 0 10px #f00';
+          onMouseOver={e => {
+            e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+            e.currentTarget.style.boxShadow = '0 0 10px #0f0';
           }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.background = 'rgba(255,0,0,0.8)';
+          onMouseOut={e => {
+            e.currentTarget.style.background = 'rgba(0,0,0,0.8)';
             e.currentTarget.style.boxShadow = 'none';
           }}
         >
-          Disconnect Wallet
+          Disconnect
+        </button>
+        <button
+          onClick={() => setShowDebug(!showDebug)}
+          style={{
+            background: 'rgba(0,0,0,0.8)',
+            color: '#0f0',
+            border: '1px solid #0f0',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            width: 'auto',
+            alignSelf: 'flex-end',
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+            e.currentTarget.style.boxShadow = '0 0 10px #0f0';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = 'rgba(0,0,0,0.8)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        >
+          {showDebug ? 'Hide Debug' : 'Show Debug'}
         </button>
       </div>
-      
+      {phunkDebugCounts}
       {/* Show dystoterminal if activated */}
       {showDystoTerminal ? (
         <iframe
@@ -739,14 +684,14 @@ function Gate() {
               zIndex: 1,
               fontFamily: 'monospace',
               color: '#0f0',
-              background: 'rgba(0,0,0,0.85)',
+              background: 'rgba(16,16,16,0.85)',
               borderRadius: '8px',
               padding: '2rem 3rem',
               boxShadow: '0 0 40px #0f0a',
               marginTop: '4rem',
               minWidth: 320,
-              opacity: matrixFade ? 1 : 0,
-              transition: 'opacity 1.2s',
+              opacity: fadeSplash ? 0 : 1,
+              transition: 'opacity 0.5s',
               maxHeight: '90vh',
               overflowY: 'auto',
             }}
@@ -754,40 +699,86 @@ function Gate() {
             <div className="text-lg mb-4" style={{ color: '#0ff' }}>
               $ ./phunk-check.sh
             </div>
-            {/* Terminal check animation only, no grid/images */}
-            {renderTerminalChecks()}
-            {/* Show Next button if all checks are met and animation is complete */}
-            {checksComplete && allChecksMet && (
-              <button
-                onClick={() => setShowDystoTerminal(true)}
-                style={{
-                  background: 'rgba(0,255,0,0.2)',
-                  color: '#0f0',
-                  border: '2px solid #0f0',
-                  padding: '12px 24px',
-                  borderRadius: '8px',
-                  fontFamily: 'monospace',
-                  fontSize: '16px',
-                  cursor: 'pointer',
-                  transition: 'all 0.3s',
-                  marginTop: '20px',
-                  fontWeight: 'bold',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.background = 'rgba(0,255,0,0.3)';
-                  e.currentTarget.style.boxShadow = '0 0 20px #0f0';
-                  e.currentTarget.style.transform = 'scale(1.05)';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
-                  e.currentTarget.style.boxShadow = 'none';
-                  e.currentTarget.style.transform = 'scale(1)';
-                }}
-              >
-                Next →
-              </button>
+            
+            {!hasCheckedPhunks ? (
+              <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                <button
+                  onClick={checkPhunks}
+                  disabled={isCheckingPhunks}
+                  style={{
+                    background: 'rgba(0,255,0,0.2)',
+                    color: '#0f0',
+                    border: '2px solid #0f0',
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    fontFamily: 'monospace',
+                    fontSize: '16px',
+                    cursor: isCheckingPhunks ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.3s',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    letterSpacing: '1px',
+                    opacity: isCheckingPhunks ? 0.6 : 1,
+                  }}
+                  onMouseOver={e => {
+                    if (!isCheckingPhunks) {
+                      e.currentTarget.style.background = 'rgba(0,255,0,0.3)';
+                      e.currentTarget.style.boxShadow = '0 0 20px #0f0';
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                    }
+                  }}
+                  onMouseOut={e => {
+                    if (!isCheckingPhunks) {
+                      e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }
+                  }}
+                >
+                  {isCheckingPhunks ? 'Checking...' : 'Check Phunks'}
+                </button>
+                {(isCheckingPhunks || checkedRows > 0) && (
+                  <div style={{ marginTop: 32 }}>{renderTerminalChecks()}</div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Terminal check animation only, no grid/images */}
+                {renderTerminalChecks()}
+                {/* Show Next button if all checks are met and animation is complete */}
+                {checksComplete && allChecksMet && (
+                  <button
+                    onClick={() => setShowDystoTerminal(true)}
+                    style={{
+                      background: 'rgba(0,255,0,0.2)',
+                      color: '#0f0',
+                      border: '2px solid #0f0',
+                      padding: '12px 24px',
+                      borderRadius: '8px',
+                      fontFamily: 'monospace',
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s',
+                      marginTop: '20px',
+                      fontWeight: 'bold',
+                      textTransform: 'uppercase',
+                      letterSpacing: '1px',
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.background = 'rgba(0,255,0,0.3)';
+                      e.currentTarget.style.boxShadow = '0 0 20px #0f0';
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.background = 'rgba(0,255,0,0.2)';
+                      e.currentTarget.style.boxShadow = 'none';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                  >
+                    Next →
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : (
