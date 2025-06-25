@@ -144,6 +144,10 @@ function Gate() {
 
   // Update checkPhunks to incrementally reveal each check
   const checkPhunks = async () => {
+    if (!isConnected) {
+      // Optionally show a message: "Please connect your wallet first"
+      return;
+    }
     if (!address || isCheckingPhunks) return;
     setIsCheckingPhunks(true);
     setHasCheckedPhunks(false);
