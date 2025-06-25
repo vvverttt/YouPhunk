@@ -42,11 +42,6 @@ const etherPhunkIdSet = new Set(etherPhunks.collection_items.map(item => item.sh
 // @ts-ignore
 const missingPhunkIdSet = new Set(missingPhunks.collection_items.map(item => item.sha?.toLowerCase()));
 
-const allowedAddresses = [
-  '0x78d3aaf8e3cd4b350635c79b7021bd76144c582c', // your wallet or others
-  // add more addresses as needed
-];
-
 function useHasMounted() {
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
@@ -537,7 +532,7 @@ function Gate() {
   const phunkDebugCounts = (
     <div style={{ color: '#ff0', fontSize: 13, margin: '8px 0', fontFamily: 'monospace' }}>
       <div><b>Total ethscriptions fetched from API:</b> {rawEthscriptionsApi.length}</div>
-      <div><b>Total EtherPhunks in local JSON:</b> {etherPhunks.collection_items.length}</div>
+      <div><b>Total EtherPhunks in local JSON:</b> {(etherPhunks as any).collection_items.length}</div>
       <div><b>Matched EtherPhunks (displayed):</b> {ownedEtherPhunks.length}</div>
     </div>
   );
@@ -643,6 +638,14 @@ function Gate() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen text-white">
         <MatrixBackground />
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <h1 style={{ color: '#0f0', fontSize: '2rem', marginBottom: '1rem', fontFamily: 'monospace' }}>
+            You Need A Phunk
+          </h1>
+          <p style={{ color: '#0ff', fontSize: '1rem', marginBottom: '2rem', fontFamily: 'monospace' }}>
+            Connect your wallet to check your Phunk collection
+          </p>
+        </div>
         <ConnectButton />
         {showDebug && debugBlock}
         {debugButton}
@@ -677,6 +680,38 @@ function Gate() {
       {debugButton}
       <MatrixBackground />
       {phunkDebugCounts}
+      {/* Wallet disconnect button */}
+      <div style={{
+        position: 'fixed',
+        top: '10px',
+        left: '10px',
+        zIndex: 10000,
+      }}>
+        <button
+          onClick={() => disconnect()}
+          style={{
+            background: 'rgba(255,0,0,0.8)',
+            color: '#fff',
+            border: '1px solid #f00',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+          }}
+          onMouseOver={(e) => {
+            e.currentTarget.style.background = 'rgba(255,0,0,0.9)';
+            e.currentTarget.style.boxShadow = '0 0 10px #f00';
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.background = 'rgba(255,0,0,0.8)';
+            e.currentTarget.style.boxShadow = 'none';
+          }}
+        >
+          Disconnect Wallet
+        </button>
+      </div>
       {/* If not past the gate, show gate UI. If past, show next page only. */}
       {!showGif ? (
       <div
